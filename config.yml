@@ -1,0 +1,118 @@
+cicd:
+  env:
+    account: '000000000000'
+    region: 'eu-west-1'
+  githubTokenArn: 'arn:aws:secretsmanager:eu-west-1:000000000000:secret:/FIXME'
+  repo:
+    owner: 'nkhine'
+    repo: 'centralised-bus'
+    branch: 'main'
+    path: ''
+    pipelineName: 'centralised-bus-cicd'
+
+
+# Notes
+# 1. Variables!
+#   GlobalBus refers to the global bus created in this stack
+#   Any `arn` set to `GlobalBus` will be overriden to the arn of global bus created in this stack
+# 2. filter is converted to json and used as the filter for that rule
+production:
+  env:
+    account: '111111111111' # ops-events
+    region: 'eu-west-1'
+  codepipeline:
+    logsAccountEventBusArn: 'arn:aws:events:eu-west-1:222222222222:event-bus/LocalBus-222222222222-eu-west-1'
+  accounts:
+    # Ensure there is only ONE LocalBus in each account and region
+    - env:
+        account: '333333333333'
+        name: 'EUWEST2'
+        region: 'eu-west-2'
+      rules:
+    - env:
+        account: '333333333333'
+        name: 'USEAST1'
+        region: 'us-east-1' # This has to be in the us-east-1
+      rules:
+        accesskeycreated:
+          description: Log AccessKeyCreated notifications
+          destinations:
+            bus:
+              - name: toglobalbus
+                arn: GlobalBus
+                filter:
+                  source:
+                    - 'aws.cloudtrail'
+                  detailType:
+                    - AWSAPI_Call
+                  detail:
+                    eventName:
+                      - CreateAccessKey
+    - env:
+        account: '000000000000' # CICD
+        name: 'ops-cicd'
+        region: eu-west-1
+      rules:
+        codepipeline_stage_monitor:
+          description: 'Log Codepipeline Stage Events'
+          # attachTo: DefaultBus
+          destinations:
+            bus:
+              - name: toglobalbus
+                arn: GlobalBus
+                filter:
+                  source:
+                    - 'aws.codepipeline'
+                  detailType:
+                    # Monitor ALL stage change events from ALL code pipeline instances
+                    - 'CodePipeline Stage Execution State Change'
+    - env:
+        account: '222222222222' # Logs
+        name: 'Logs: 222222222222'
+        region: 'eu-west-1'
+
+sharedRules:
+  # IAM service operates in us-east-1 region and IAM events are only logged in
+  # 1. cloudtrail us-east-1 region in the same account
+  # 2. organization's cloudtrail
+  # For CreateAccessKey events, the rule has to be added in us-east-1 region in each local bus account.
+  # For ConsoleLogin events, it has to be added in the home region of an organization.
+  consoleauthfailure:
+    description: 'Log ConsoleAuthFailure to global bus'
+    destinations:
+      bus:
+        - name: toglobalbus
+          arn: GlobalBus
+          filter:
+            source:
+              - 'aws.cloudtrail'
+            detailType:
+              - 'ConsoleAuthFailure'
+      # rules:
+      #   consoleauthfailure:
+      #     description: Log ConsoleAuthFailure to global bus
+      #     destinations:
+      #       bus:
+      #         - name: toglobalbus
+      #           arn: GlobalBus
+      #           filter:
+      #             source:
+      #               - 'aws.cloudtrail'
+      #             detailType:
+      #               - 'ConsoleAuthFailure'
+      #   accesskeycreated:
+      #     description: Log AccessKeyCreated notifications
+      #     destinations:
+      #       # TODO: Change this to lambda?
+      #       bus:
+      #         - name: toglobalbus
+      #           arn: GlobalBus
+      #           filter:
+      #             source:
+      #               - 'aws.cloudtrail'
+      #             detailType:
+      #               - AWSAPI_Call
+      #             detail:
+      #               eventName:
+      #                 - CreateAccessKey
+
